@@ -1,0 +1,282 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from shutil import copyfile
+import socket
+
+# import zernikePSF.zernikePSF
+from zernikePSF import zernikePSF
+
+	# TO-DO:
+		# Change so .bat files are generated first OR as PSFs outputted
+		# Output scan_name into file to be read by run_viewRSoftData.py
+		# Fix bat file distribution
+		# chmod
+
+	# Before a run:
+		# scan_name
+		# number_of_scans
+		# number_of_zernike_modes
+		# # current_path
+		# # ind_file_name
+		# # max_coeff_value
+		# # num_bat_files
+
+def get_filepath():
+    computer_name = socket.gethostname()
+    if computer_name == 'tauron':
+        return '/media/tintagel/david'
+    else:
+        return '/import/tintagel3/snert/david'
+
+def create_coeffs_list(number_of_scans, number_of_zerinke_modes, max_coeff_value, seed):
+	# Randomly generate coeffsList
+	# Set random seed so results can be repeated (might want to be turned off)
+	np.random.seed(seed) # ***
+	# Distribution is [-max_coeff_value, max_coeff_value) since np.random.rand returns [0,1)
+	coeffs = np.random.rand(number_of_scans, number_of_zerinke_modes-1)*2*max_coeff_value - max_coeff_value
+	coeffs = np.concatenate((np.zeros((number_of_scans, 1)), coeffs), axis=1)
+	coeffs_list = coeffs.tolist()
+	return coeffs_list
+
+def focus_coeffs_list(number_of_scans, number_of_zerinke_modes, max_coeff_value, seed):
+	np.random.seed(seed)
+	# focus = np.array([-0.02, -0.0983, -0.0704, 0.0126, -0.1607, 0.0393, -0.0102])
+	# focus = np.array([0, 0, -0.2632, 0, 0, 0, 0])
+	focus = np.array([0, 0, -0.35, 0, 0, 0, 0])
+	coeffs = np.zeros((number_of_scans, number_of_zerinke_modes))
+	coeffs[:, 3] = ((np.random.rand(number_of_scans, 1)*2 - 1)*0.2 + focus[2]).T
+	# for i, value in enumerate(focus):
+	# 	coeffs[ : , i+1] = (((np.random.rand(number_of_scans, 1)*2 - 1)*max_coeff_value)*0.1 + focus[i]).T
+	coeffs_list = coeffs.tolist()
+	return coeffs_list
+
+def custom_zernike_list(number_of_scans, zernike_modes, max_coeff_value, seed):
+	zernike_modes.sort()
+	coeffs = np.zeros((number_of_scans, max(zernike_modes)))
+	for mode in zernike_modes:
+		coeffs[ : , mode-1] = ((np.random.rand(number_of_scans, 1)*2 - 1)*max_coeff_value).T
+	return coeffs.tolist()
+
+def specify_coeffs_list():
+	zernikes = 8
+	length = 1
+	# coeffs_list2 = np.array([[-0.324, -0.147, -0.063, 0.476, 0.332, 0.061, 0.145],
+	# 					[0.016, 0.288, -0.164, 0.03, -0.558, -0.152, -0.016],
+	# 					[-0.248, -0.086, -0.111, 0.376, 0.394, 0.057, 0.13],
+	# 					[-0.372, -0.072, -0.038, 0.028, 0.307, 0.027, 0.082],
+	# 					[-0.36, -0.122, -0.039, 0.028, 0.249, 0.025, 0.093],
+	# 					[-0.382, -0.148, -0.048, 0.061, 0.236, 0.031, 0.098]])/2
+	# 0, 60, 120, 180, 240, 300
+	# coeffs_list2 = np.array([[0.9529, -0.1365, -0.0774, 0.8576, 0.226, -0.9561, -0.9353, -0.1502, -0.5286, -0.1009],
+	# 					[-0.9337, 0.1412, -0.0479, 0.8551, 0.2107, 0.987, 0.9703, 0.195, 0.4882, -0.0954],
+	# 					[0.6618, -0.9378, 0.0839, -0.625, 0.626, 0.3151, -1.0, 0.0991, 0.5474, -0.0021]])/2
+	coeffs_list2 = np.array([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]])
+	coeffs_list2 = np.concatenate((np.zeros((length, 1)), coeffs_list2), axis=1)
+	coeffs_list2 = coeffs_list2.tolist()
+	return coeffs_list2
+
+def rotation_coefficient_generator():
+    coeffs = None
+    j = 1
+    m = 1
+    sign = 1
+    while True:
+        for n in reversed(range(m, 0, -2)):
+            if m % 2 == 0 and n <= 2:
+                # print(j, m, 0)
+                yield 0
+                j += 1
+                sign *= -1
+            # print(j, m, sign*n)
+            yield sign*n
+            j += 1
+            # print(j, m, -sign*n)
+            yield -sign*n
+            j += 1
+        m += 1
+
+def rotate_data(coeffs):
+    angle = 60
+    rotated_coeffs = np.zeros(len(coeffs))
+    look_forward = True
+    generator = rotation_coefficient_generator()
+    for i in range(len(rotated_coeffs)):
+        rotation_coefficient = next(generator)
+        print(coefficient, look_forward)
+        if coefficient == 0:
+            rotated_coeffs[i] = coeffs[i]
+            continue
+        if look_forward:
+            rotated_coeffs[i] = coeffs[i]*cos(rotation_coefficient*radians(angle)) + coeffs[i+1]*sin(rotation_coefficient*radians(angle))
+        else:
+            rotated_coeffs[i] = coeffs[i]*cos(rotation_coefficient*radians(angle)) + coeffs[i-1]*sin(rotation_coefficient*radians(angle))
+        look_forward = not look_forward
+    return rotated_coeffs
+
+def create_rotation_list():
+	zernikes = 8
+	length = 6
+	coeffs_list = [[0.0059, 0.2345, -0.2955, 0.0129, -0.6418, -0.0971, 0.0116]]
+	for _ in range(5):
+		# Rotate each example 5 times
+		coeffs_list += [rotate_data(coeffs_list[-1])]
+	print(coeffs_list)
+	return coeffs_list
+
+def retrieve_coeffs_list(scan_name, out_path):
+	npz_file = np.load(out_path + 'adversarial_coeffs.npz')
+	if scan_name != npz_file['scan_name']:
+		raise ValueError('Loading incorrect coefficient file.')
+	return npz_file['coeffs_list']
+
+def create_directory(current_path, out_path, ind_file_name):
+	# Create new directory in which to put files generated by makeMultiplePSFs
+	try:
+		os.mkdir(out_path)
+	except OSError as e:
+		print(e)
+		print()
+		print('Unable to create new directory', out_path, 'but directory already exists.')
+		input('')
+	# except FileExistsError:
+	# 	print('Attemped to create new directory', out_path, 'but directory already exists.')
+	# 	input('')
+	# Copy across ind file
+	copyfile(current_path+ind_file_name, out_path+ind_file_name)
+
+def LRM_to_radians_single(coeffs, index):
+    # Takes vector of n coeffs, treats them as same coefficient (given by index, skipping piston)
+    globalnormfactor = 0.3  # In Fiona's code
+    # These normalise the -1<z<1 Zernikes to have sd = 1
+    zernnormfacts = np.array([2.0003, 2.0003, 2.4495, 1.7325, 2.4508,
+                              2.8296, 2.8296, 2.8296, 2.8296])
+    zernnormfact = zernnormfacts[index]
+    # Linear region of SLM, delay (rads) as fn of g.v.
+    # Is between gv of ~83 and 201
+    m = 0.00785 # From linear fit to manufacturer's response graph
+    coeffsar = np.asarray(coeffs)
+    ct = globalnormfactor * coeffsar / zernnormfact  # + offset
+    x = ct * 255
+    rads = m * x  # + b
+    return (rads)
+
+def main():
+	# Dealing with file system, many files will be produced
+	scan_name = 'BigOne56' # ***
+	# scan_name = 'BigOne47' # ***
+	current_path = os.path.dirname(os.path.realpath(__file__)) + '/'
+	# current_path = 'Z:\\david\\'
+	# out_path = current_path + '{}/'.format(scan_name)
+	# If it's run on Pendragon must use this one
+	out_path = '{}/Neural_Nets/Data/{}/'.format(get_filepath(), scan_name)
+	ind_file_name = '19CorePL_June2019_realhex_bigone' + '.ind'
+	create_directory(current_path, out_path, ind_file_name)
+
+	# Some constants must be defined
+	# At 1550nm, airy radius = l/d = 71 arcsec
+	# Aperture radius:
+	RADIUS = 2e-3
+	# Lens focal length (m)
+	# for f=4.5mm lens:
+	# f = 4.5e-3
+	f = 4.5e-3 * 2
+	# Want 1024 pixels
+	# Want FOV of 60um
+	FOV_PIXELS = 512 #or 512 for 1024 total pixels
+	h = 60e-6/2
+	theta = np.arctan(h/f) / np.pi * 180 * 60 * 60 # in arcsec
+	PIXSCALE = theta/FOV_PIXELS
+
+	# Initialise Zernike class using the above constants
+	z = zernikePSF(radius = RADIUS, pixscale = PIXSCALE, FOV_pixels = FOV_PIXELS)
+
+	# Randomly generate coeffsList
+	# May have seed set
+	number_of_scans = 1000 # ***
+	number_of_zerinke_modes = 19 #Number of zernikes is this**
+	max_coeff_value = 0.5 #**
+	num_bat_files = min(16, number_of_scans) # Caprica has 64 cores **
+	coeffsList = create_coeffs_list(number_of_scans, number_of_zerinke_modes, max_coeff_value, int(scan_name[-2:]))
+	# coeffsList = retrieve_coeffs_list(scan_name, out_path)
+	# coeffsList = specify_coeffs_list()
+	# coeffsList = custom_zernike_list(number_of_scans, [4, 11, 22, 27, 28, 37, 42, 43], max_coeff_value, int(scan_name[-2:]))
+	# coeffsList = focus_coeffs_list(number_of_scans, number_of_zerinke_modes, max_coeff_value, int(scan_name[-2:]))
+
+	# Create RSoft files
+	output_size_data = h*1e6
+	trimLeadingCoeffnames = 3		# Filenames can be too long for RSoft/Windows
+	z.makeMultiplePSFs(coeffsList, makeBatFile=True, saveAllData=False, outpath=out_path, # **
+	                   size_data=output_size_data, indFile=ind_file_name,
+	                   outPrefix='seven_zernike_', numBatfiles=num_bat_files,
+	                   trimLeadingCoeffnames=trimLeadingCoeffnames, verbose=1)
+	# os.system("chmod u+x {}runAllBatfiles.bat".format(out_path))
+
+if __name__ == '__main__':
+	main()
+	# specify_coeffs_list()
+
+
+# Aperture radius:
+# RADIUS = 2e-3
+# Lens focal length (m)
+# for f=4.5mm lens:fb
+# f = 4.5e-3
+# Image half-height (m)
+# h = 15e-6
+# Output image size /2
+# FOV_PIXELS = 1024
+
+# coeffs = [0, 0, 0, 0, 0, 0]
+# coeffs = [0, 0, 0, 0, 0.1, 0]
+# coeffs = [0, 0.1, 0, 0.1, 0.1, 0.1]
+# coeffs=np.random.normal(0, scale=0.1, size=8)
+# coeffs = [-0.06299088,  0.01443881, -0.22630796, -0.07385043, -0.05109957,
+#     0.00457911, -0.20072602, -0.11332227]
+# coeffs = [0, 0, 0, 0.2, 0.1, 0.05, -0.01, -0.03] # 'Mixed Zernike Set 01'
+# coeffs = [0, 0.1, 0.05, 0.2, 0.1, 0.05, -0.05, -0.02, 0.03, -0.05] # 'Mixed Zernike Set 02'
+
+# z.makeZernikePSF(coeffs=coeffs, show=True, extraPlots=True)
+
+# z.saveToRSoft(outfile='PSFOut', size_data=output_size_data)
+
+# coeffs1 = coeffs
+# coeffs2 = [0.0, 0, 0, 0, 0, 0]
+# coeffsList=[coeffs1, coeffs2]
+# coeffsList = [coeffs]
+# z.makeMultiplePSFs(coeffsList, makeBatFile=False)
+
+
+# # Test restore:
+# outpath = '/Users/bnorris/Dropbox/Win-Mac Share/rsoft/19CorePL/scan1/'
+# npzfile = np.load(outpath+'testscans2_metadata.npz')
+
+
+
+# psf = makeZernikePSF(coeffs=coeffs, show=True)
+# psf = makeZernikePSF(show=True, coeffs=np.random.normal(0, scale=0.05, size=8))
+
+# psfImage = psf[0].data
+
+# plt.figure(2)
+# poppy.display_psf(psf, normalize='peak', cmap='gist_heat', scale='log', vmin=1e-7, vmax=1)
+
+#psf, wf = makeZernikePSF(coeffs=coeffs, show=True, return_final=True)
+
+
+# psfImage = psf[0].data
+# plt.figure(2)
+# plt.clf()
+# poppy.display_psf(psf, normalize='peak', cmap='viridis', scale='linear', vmin=0, vmax=1)
+#
+# plt.figure(3)
+# plt.clf()
+# plt.subplot(1, 2, 1)
+# plt.imshow(wf.amplitude**2)
+# plt.title('Amplitude ^2')
+# plt.colorbar()
+# plt.subplot(1, 2, 2)
+# plt.imshow(wf.phase)
+# plt.title('Phase')
+# plt.colorbar()
+# plt.tight_layout()
